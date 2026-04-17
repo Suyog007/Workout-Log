@@ -3,12 +3,13 @@
 // Firebase Console > Project Settings > General > Your apps > Web app
 
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyCob88GJ6YO7f-wTHpHognE32a1opYoCwk",
+  authDomain: "gymlog-83e63.firebaseapp.com",
+  projectId: "gymlog-83e63",
+  storageBucket: "gymlog-83e63.firebasestorage.app",
+  messagingSenderId: "841548024881",
+  appId: "1:841548024881:web:292aa5de08e946b611d910",
+  measurementId: "G-7MQVVQZCFG"
 };
 
 // Initialize Firebase
