@@ -89,122 +89,89 @@ const icons = {
   notes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
 };
 
-// === AUTH ===
-async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'gymlog-salt-2026');
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function isSetup() {
-  return !!localStorage.getItem('gymlog_user');
-}
-
+// === AUTH (Firebase) ===
 function isLoggedIn() {
-  return localStorage.getItem('gymlog_session') === 'active';
+  return auth.currentUser !== null;
 }
 
 function renderLogin(app, params = {}) {
-  const setup = isSetup();
+  app.innerHTML = `
+    <div class="container" style="padding-top:60px">
+      <div style="text-align:center;margin-bottom:32px">
+        <h1 style="font-size:2rem;margin-bottom:4px"><span style="color:var(--primary-light)">Gym</span>Log</h1>
+        <p class="text-dim" id="auth-subtitle">Sign in to continue</p>
+      </div>
+      <div class="card">
+        <div class="input-group">
+          <label>Email</label>
+          <input type="email" id="auth-email" placeholder="your@email.com" autocomplete="email">
+        </div>
+        <div class="input-group">
+          <label>Password</label>
+          <input type="password" id="auth-pass" placeholder="Enter password" autocomplete="current-password"
+            onkeydown="if(event.key==='Enter')doLogin()">
+        </div>
+        <div id="auth-error" class="text-danger text-sm mb-8" style="display:none"></div>
+        <button class="btn btn-primary btn-block" onclick="doLogin()" id="auth-btn">Sign In</button>
+        <div style="text-align:center;margin-top:12px">
+          <button class="btn btn-ghost btn-sm" onclick="toggleAuthMode()" id="auth-toggle">New here? Create account</button>
+        </div>
+      </div>
+      <div style="text-align:center;margin-top:20px">
+        <button class="btn btn-ghost btn-sm" onclick="navigate('exercises')">Browse Exercises</button>
+      </div>
+    </div>`;
 
-  if (!setup) {
-    // First time setup
-    app.innerHTML = `
-      <div class="container" style="padding-top:60px">
-        <div style="text-align:center;margin-bottom:32px">
-          <h1 style="font-size:2rem;margin-bottom:4px"><span style="color:var(--primary-light)">Gym</span>Log</h1>
-          <p class="text-dim">Set up your account</p>
-        </div>
-        <div class="card">
-          <div class="input-group">
-            <label>Username</label>
-            <input type="text" id="setup-user" placeholder="Enter username" autocomplete="username">
-          </div>
-          <div class="input-group">
-            <label>Password</label>
-            <input type="password" id="setup-pass" placeholder="Enter password" autocomplete="new-password">
-          </div>
-          <div class="input-group">
-            <label>Confirm Password</label>
-            <input type="password" id="setup-pass2" placeholder="Confirm password" autocomplete="new-password"
-              onkeydown="if(event.key==='Enter')doSetup()">
-          </div>
-          <div id="setup-error" class="text-danger text-sm mb-8" style="display:none"></div>
-          <button class="btn btn-primary btn-block" onclick="doSetup()">Create Account</button>
-        </div>
-      </div>`;
-  } else {
-    // Login
-    const savedUser = localStorage.getItem('gymlog_user');
-    app.innerHTML = `
-      <div class="container" style="padding-top:60px">
-        <div style="text-align:center;margin-bottom:32px">
-          <h1 style="font-size:2rem;margin-bottom:4px"><span style="color:var(--primary-light)">Gym</span>Log</h1>
-          <p class="text-dim">Welcome back, <strong>${savedUser}</strong></p>
-        </div>
-        <div class="card">
-          <div class="input-group">
-            <label>Password</label>
-            <input type="password" id="login-pass" placeholder="Enter password" autocomplete="current-password"
-              onkeydown="if(event.key==='Enter')doLogin()">
-          </div>
-          <div id="login-error" class="text-danger text-sm mb-8" style="display:none"></div>
-          <button class="btn btn-primary btn-block" onclick="doLogin()">Log In</button>
-        </div>
-        <div style="text-align:center;margin-top:20px">
-          <button class="btn btn-ghost btn-sm" onclick="navigate('exercises')">Browse Exercises</button>
-        </div>
-      </div>`;
-
-    // Auto focus password field
-    setTimeout(() => {
-      const passInput = document.getElementById('login-pass');
-      if (passInput) passInput.focus();
-    }, 200);
-  }
+  setTimeout(() => {
+    const emailInput = document.getElementById('auth-email');
+    if (emailInput) emailInput.focus();
+  }, 200);
 }
 
-async function doSetup() {
-  const user = document.getElementById('setup-user').value.trim();
-  const pass = document.getElementById('setup-pass').value;
-  const pass2 = document.getElementById('setup-pass2').value;
-  const errEl = document.getElementById('setup-error');
+let _authModeSignup = false;
 
-  if (!user) { errEl.textContent = 'Username is required'; errEl.style.display = ''; return; }
-  if (pass.length < 4) { errEl.textContent = 'Password must be at least 4 characters'; errEl.style.display = ''; return; }
-  if (pass !== pass2) { errEl.textContent = 'Passwords do not match'; errEl.style.display = ''; return; }
-
-  const hashed = await hashPassword(pass);
-  localStorage.setItem('gymlog_user', user);
-  localStorage.setItem('gymlog_pass', hashed);
-  localStorage.setItem('gymlog_session', 'active');
-  isAuthenticated = true;
-  navigate('dashboard');
+function toggleAuthMode() {
+  _authModeSignup = !_authModeSignup;
+  document.getElementById('auth-subtitle').textContent = _authModeSignup ? 'Create your account' : 'Sign in to continue';
+  document.getElementById('auth-btn').textContent = _authModeSignup ? 'Create Account' : 'Sign In';
+  document.getElementById('auth-toggle').textContent = _authModeSignup ? 'Already have an account? Sign in' : 'New here? Create account';
+  const errEl = document.getElementById('auth-error');
+  errEl.style.display = 'none';
 }
 
 async function doLogin() {
-  const pass = document.getElementById('login-pass').value;
-  const errEl = document.getElementById('login-error');
+  const email = document.getElementById('auth-email').value.trim();
+  const pass = document.getElementById('auth-pass').value;
+  const errEl = document.getElementById('auth-error');
 
-  const hashed = await hashPassword(pass);
-  const stored = localStorage.getItem('gymlog_pass');
+  if (!email || !pass) { errEl.textContent = 'Email and password are required'; errEl.style.display = ''; return; }
 
-  if (hashed !== stored) {
-    errEl.textContent = 'Incorrect password';
+  try {
+    if (_authModeSignup) {
+      await auth.createUserWithEmailAndPassword(email, pass);
+    } else {
+      await auth.signInWithEmailAndPassword(email, pass);
+    }
+    // onAuthStateChanged will handle the rest
+  } catch (e) {
+    const messages = {
+      'auth/email-already-in-use': 'Email already registered. Try signing in.',
+      'auth/invalid-email': 'Invalid email address.',
+      'auth/weak-password': 'Password must be at least 6 characters.',
+      'auth/user-not-found': 'No account found with this email.',
+      'auth/wrong-password': 'Incorrect password.',
+      'auth/invalid-credential': 'Incorrect email or password.',
+      'auth/too-many-requests': 'Too many attempts. Try again later.',
+    };
+    errEl.textContent = messages[e.code] || e.message;
     errEl.style.display = '';
-    document.getElementById('login-pass').value = '';
-    return;
   }
-
-  localStorage.setItem('gymlog_session', 'active');
-  isAuthenticated = true;
-  navigate('dashboard');
 }
 
-function doLogout() {
-  localStorage.removeItem('gymlog_session');
+async function doLogout() {
+  await auth.signOut();
   isAuthenticated = false;
+  activeWorkout = null;
   navigate('login');
 }
 
@@ -220,11 +187,7 @@ function showChangePasswordModal() {
     </div>
     <div class="input-group">
       <label>New Password</label>
-      <input type="password" id="cp-new" placeholder="New password">
-    </div>
-    <div class="input-group">
-      <label>Confirm New Password</label>
-      <input type="password" id="cp-new2" placeholder="Confirm new password">
+      <input type="password" id="cp-new" placeholder="New password (min 6 chars)">
     </div>
     <div id="cp-error" class="text-danger text-sm mb-8" style="display:none"></div>
     <button class="btn btn-primary btn-block" onclick="doChangePassword()">Update Password</button>
@@ -234,30 +197,25 @@ function showChangePasswordModal() {
 async function doChangePassword() {
   const oldPass = document.getElementById('cp-old').value;
   const newPass = document.getElementById('cp-new').value;
-  const newPass2 = document.getElementById('cp-new2').value;
   const errEl = document.getElementById('cp-error');
 
-  const oldHash = await hashPassword(oldPass);
-  if (oldHash !== localStorage.getItem('gymlog_pass')) {
-    errEl.textContent = 'Current password is incorrect';
-    errEl.style.display = '';
-    return;
-  }
-  if (newPass.length < 4) {
-    errEl.textContent = 'New password must be at least 4 characters';
-    errEl.style.display = '';
-    return;
-  }
-  if (newPass !== newPass2) {
-    errEl.textContent = 'New passwords do not match';
+  if (newPass.length < 6) {
+    errEl.textContent = 'New password must be at least 6 characters';
     errEl.style.display = '';
     return;
   }
 
-  const newHash = await hashPassword(newPass);
-  localStorage.setItem('gymlog_pass', newHash);
-  closeModal();
-  alert('Password updated!');
+  try {
+    const user = auth.currentUser;
+    const credential = firebase.auth.EmailAuthProvider.credential(user.email, oldPass);
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(newPass);
+    closeModal();
+    alert('Password updated!');
+  } catch (e) {
+    errEl.textContent = e.code === 'auth/wrong-password' ? 'Current password is incorrect' : e.message;
+    errEl.style.display = '';
+  }
 }
 
 // Day color/icon map
@@ -330,7 +288,7 @@ async function renderDashboard(app) {
   templates.forEach(t => {
     const style = DAY_STYLES[t.name] || { color: '#6c5ce7', icon: '🏋️', label: t.name };
     html += `
-      <button class="day-btn" onclick="toggleDayExpand(this, ${t.id})" style="--day-color: ${style.color}">
+      <button class="day-btn" onclick="toggleDayExpand(this, '${t.id}')" style="--day-color: ${style.color}">
         <div class="day-icon">${style.icon}</div>
         <div class="day-label">${style.label}</div>
       </button>`;
@@ -357,7 +315,7 @@ async function renderDashboard(app) {
       const sets = await dbGetByIndex('sets', 'workoutId', w.id);
       const exerciseIds = [...new Set(sets.map(s => s.exerciseId))];
       html += `
-        <div class="workout-card" onclick="navigate('workout-detail', {id:${w.id}})">
+        <div class="workout-card" onclick="navigate('workout-detail', {id:'${w.id}'})">
           <div class="date">${formatDate(w.date)}</div>
           <div class="name">${w.name}</div>
           <div class="summary">${exerciseIds.length} exercises, ${sets.length} sets</div>
@@ -417,7 +375,7 @@ async function toggleDayExpand(btn, templateId) {
   });
 
   html += `</div>
-    <button class="btn btn-primary btn-block mt-12" onclick="startFromTemplate(${templateId})" style="background: var(--day-color)">
+    <button class="btn btn-primary btn-block mt-12" onclick="startFromTemplate('${templateId}')" style="background: var(--day-color)">
       Start ${template.name}
     </button>
   </div>`;
@@ -482,7 +440,7 @@ async function renderActiveWorkout(app) {
               ${ex.secondary && ex.secondary.length ? `<span class="muscle-tag secondary">${ex.secondary.join(', ')}</span>` : ''}
             </div>
           </div>
-          <button class="btn-icon" onclick="removeExerciseFromWorkout(${exId})" title="Remove">${icons.x}</button>
+          <button class="btn-icon" onclick="removeExerciseFromWorkout('${exId}')" title="Remove">${icons.x}</button>
         </div>
         <div class="exercise-block-body">`;
 
@@ -524,41 +482,41 @@ async function renderActiveWorkout(app) {
           <div class="set-row" data-set-id="${s.id}">
             <div class="set-num">${s.setNumber}</div>
             <input type="number" inputmode="decimal" placeholder="0"
-              value="${s.weight || ''}" onchange="updateSet(${s.id}, 'weight', this.value)" step="any"
+              value="${s.weight || ''}" onchange="updateSet('${s.id}', 'weight', this.value)" step="any"
               title="Duration in minutes">
             <input type="number" inputmode="decimal" placeholder="0"
-              value="${s.reps || ''}" onchange="updateSet(${s.id}, 'reps', this.value)" step="any"
+              value="${s.reps || ''}" onchange="updateSet('${s.id}', 'reps', this.value)" step="any"
               title="Distance in km">
             <input type="number" inputmode="decimal" placeholder="0"
-              value="${s.rpe || ''}" onchange="updateSet(${s.id}, 'rpe', this.value)" step="any"
+              value="${s.rpe || ''}" onchange="updateSet('${s.id}', 'rpe', this.value)" step="any"
               style="max-width:50px" title="Speed/Incline">
-            <button class="check-btn ${s.completed ? 'done' : ''}" onclick="completeSet(${s.id}, ${exId})">
+            <button class="check-btn ${s.completed ? 'done' : ''}" onclick="completeSet('${s.id}', '${exId}')">
               ${icons.check}
             </button>
-            <button class="delete-set" onclick="deleteSet(${s.id})">${icons.x}</button>
+            <button class="delete-set" onclick="deleteSet('${s.id}')">${icons.x}</button>
           </div>`;
       } else {
         html += `
           <div class="set-row" data-set-id="${s.id}">
             <div class="set-num">${s.setNumber}</div>
             <input type="number" inputmode="decimal" placeholder="0"
-              value="${s.weight || ''}" onchange="updateSet(${s.id}, 'weight', this.value)" step="any">
+              value="${s.weight || ''}" onchange="updateSet('${s.id}', 'weight', this.value)" step="any">
             ${!isTimed ? `<input type="number" inputmode="numeric" placeholder="0"
-              value="${s.reps || ''}" onchange="updateSet(${s.id}, 'reps', this.value)">` : ''}
-            <div class="rpe-badge ${rpeClass}" onclick="showRPEPicker(${s.id})">${s.rpe || '-'}</div>
-            <button class="check-btn ${s.completed ? 'done' : ''}" onclick="completeSet(${s.id}, ${exId})">
+              value="${s.reps || ''}" onchange="updateSet('${s.id}', 'reps', this.value)">` : ''}
+            <div class="rpe-badge ${rpeClass}" onclick="showRPEPicker('${s.id}')">${s.rpe || '-'}</div>
+            <button class="check-btn ${s.completed ? 'done' : ''}" onclick="completeSet('${s.id}', '${exId}')">
               ${icons.check}
             </button>
-            <button class="delete-set" onclick="deleteSet(${s.id})">${icons.x}</button>
+            <button class="delete-set" onclick="deleteSet('${s.id}')">${icons.x}</button>
           </div>`;
       }
     });
 
     html += `
-          <button class="btn btn-ghost btn-sm btn-block mt-8" onclick="addSet(${exId})">
+          <button class="btn btn-ghost btn-sm btn-block mt-8" onclick="addSet('${exId}')">
             ${icons.plus} Add Set
           </button>
-          <button class="btn btn-ghost btn-sm btn-block mt-8" onclick="showExerciseNotes(${exId})"
+          <button class="btn btn-ghost btn-sm btn-block mt-8" onclick="showExerciseNotes('${exId}')"
             style="border:none;color:var(--text-dim)">
             ${icons.notes} Notes
           </button>
@@ -609,7 +567,7 @@ async function renderHistory(app) {
       const prs = sets.filter(s => s.isPR).length;
 
       html += `
-        <div class="workout-card" onclick="navigate('workout-detail', {id:${w.id}})">
+        <div class="workout-card" onclick="navigate('workout-detail', {id:'${w.id}'})">
           <div class="flex-between">
             <div class="date">${formatDate(w.date)}</div>
             ${prs > 0 ? `<span class="pr-badge">${icons.trophy} ${prs} PR${prs > 1 ? 's' : ''}</span>` : ''}
@@ -652,12 +610,12 @@ async function renderWorkoutDetail(app, params) {
     <div class="flex-between mb-12">
       <button class="btn btn-ghost btn-sm" onclick="navigate('history')">${icons.arrowLeft} Back</button>
       <div class="flex gap-8">
-        <button class="btn btn-ghost btn-sm" onclick="saveAsTemplate(${workout.id})">${icons.save}</button>
-        <button class="btn btn-ghost btn-sm" onclick="deleteWorkout(${workout.id})">${icons.trash}</button>
+        <button class="btn btn-ghost btn-sm" onclick="saveAsTemplate('${workout.id}')">${icons.save}</button>
+        <button class="btn btn-ghost btn-sm" onclick="deleteWorkout('${workout.id}')">${icons.trash}</button>
       </div>
     </div>
     <input type="text" value="${workout.name}" id="detail-workout-name"
-      onchange="updateDetailWorkoutName(${workout.id}, this.value)"
+      onchange="updateDetailWorkoutName('${workout.id}', this.value)"
       style="background:none;border:none;font-size:1.4rem;font-weight:700;color:var(--text);padding:0;width:100%;margin-bottom:4px">
     <div class="text-dim text-sm mb-16">${formatDate(workout.date)}${workout.duration ? ` | ${formatTime(workout.duration)}` : ''}</div>`;
 
@@ -669,14 +627,14 @@ async function renderWorkoutDetail(app, params) {
     html += `
       <div class="exercise-block">
         <div class="exercise-block-header">
-          <div onclick="navigate('stats', {exerciseId: ${exId}})" style="cursor:pointer;flex:1">
+          <div onclick="navigate('stats', {exerciseId: '${exId}'})" style="cursor:pointer;flex:1">
             <h3>${ex.name}</h3>
             <div class="muscle-targets">
               <span class="muscle-tag primary">${(ex.primary || [ex.muscleGroup]).join(', ')}</span>
               ${ex.secondary && ex.secondary.length ? `<span class="muscle-tag secondary">${ex.secondary.join(', ')}</span>` : ''}
             </div>
           </div>
-          <button class="btn-icon" onclick="removeExerciseFromDetail(${workout.id}, ${exId})" title="Remove">${icons.x}</button>
+          <button class="btn-icon" onclick="removeExerciseFromDetail('${workout.id}', '${exId}')" title="Remove">${icons.x}</button>
         </div>
         <div class="exercise-block-body">`;
 
@@ -699,28 +657,28 @@ async function renderWorkoutDetail(app, params) {
           <div class="set-row">
             <div class="set-num">${s.setNumber}</div>
             <input type="number" inputmode="decimal" placeholder="0"
-              value="${s.weight || ''}" onchange="updateSet(${s.id}, 'weight', this.value)" step="any"
+              value="${s.weight || ''}" onchange="updateSet('${s.id}', 'weight', this.value)" step="any"
               title="Duration in minutes">
             <input type="number" inputmode="decimal" placeholder="0"
-              value="${s.reps || ''}" onchange="updateSet(${s.id}, 'reps', this.value)" step="any"
+              value="${s.reps || ''}" onchange="updateSet('${s.id}', 'reps', this.value)" step="any"
               title="Distance in km">
             <input type="number" inputmode="decimal" placeholder="0"
-              value="${s.rpe || ''}" onchange="updateSet(${s.id}, 'rpe', this.value)" step="any"
+              value="${s.rpe || ''}" onchange="updateSet('${s.id}', 'rpe', this.value)" step="any"
               style="max-width:50px" title="Speed/Incline">
             <div style="width:32px"></div>
-            <button class="delete-set" onclick="deleteSetDetail(${s.id}, ${workout.id})">${icons.x}</button>
+            <button class="delete-set" onclick="deleteSetDetail('${s.id}', '${workout.id}')">${icons.x}</button>
           </div>`;
       } else {
         html += `
           <div class="set-row">
             <div class="set-num">${s.setNumber}</div>
             <input type="number" inputmode="decimal" placeholder="0"
-              value="${s.weight || ''}" onchange="updateSet(${s.id}, 'weight', this.value)" step="any">
+              value="${s.weight || ''}" onchange="updateSet('${s.id}', 'weight', this.value)" step="any">
             ${!dIsTimed ? `<input type="number" inputmode="numeric" placeholder="0"
-              value="${s.reps || ''}" onchange="updateSet(${s.id}, 'reps', this.value)">` : ''}
-            <div class="rpe-badge ${rpeClass}" onclick="showRPEPickerDetail(${s.id}, ${workout.id})">${s.rpe || '-'}</div>
+              value="${s.reps || ''}" onchange="updateSet('${s.id}', 'reps', this.value)">` : ''}
+            <div class="rpe-badge ${rpeClass}" onclick="showRPEPickerDetail('${s.id}', '${workout.id}')">${s.rpe || '-'}</div>
             <div style="width:32px;text-align:center">${s.isPR ? '<span class="pr-badge">PR</span>' : ''}</div>
-            <button class="delete-set" onclick="deleteSetDetail(${s.id}, ${workout.id})">${icons.x}</button>
+            <button class="delete-set" onclick="deleteSetDetail('${s.id}', '${workout.id}')">${icons.x}</button>
           </div>`;
       }
     });
@@ -730,10 +688,10 @@ async function renderWorkoutDetail(app, params) {
     }
 
     html += `
-          <button class="btn btn-ghost btn-sm btn-block mt-8" onclick="addSetDetail(${exId}, ${workout.id})">
+          <button class="btn btn-ghost btn-sm btn-block mt-8" onclick="addSetDetail('${exId}', '${workout.id}')">
             ${icons.plus} Add Set
           </button>
-          <button class="btn btn-ghost btn-sm btn-block mt-8" onclick="showDetailExerciseNotes(${exId}, ${workout.id})"
+          <button class="btn btn-ghost btn-sm btn-block mt-8" onclick="showDetailExerciseNotes('${exId}', '${workout.id}')"
             style="border:none;color:var(--text-dim)">
             ${icons.notes} Notes
           </button>
@@ -743,10 +701,10 @@ async function renderWorkoutDetail(app, params) {
 
   // Add exercise + save as template
   html += `
-    <button class="btn btn-ghost btn-block mt-12" onclick="showAddExerciseModalDetail(${workout.id})">
+    <button class="btn btn-ghost btn-block mt-12" onclick="showAddExerciseModalDetail('${workout.id}')">
       ${icons.plus} Add Exercise
     </button>
-    <button class="btn btn-ghost btn-block mt-8 mb-16" onclick="saveAsTemplate(${workout.id})" style="border:none;color:var(--text-dim)">
+    <button class="btn btn-ghost btn-block mt-8 mb-16" onclick="saveAsTemplate('${workout.id}')" style="border:none;color:var(--text-dim)">
       ${icons.save} Save as Template
     </button>
   </div>`;
@@ -781,7 +739,7 @@ async function renderExercises(app) {
     const altStr = ex.alternates && ex.alternates.length ? ex.alternates.join(', ') : '';
     html += `
       <div class="exercise-list-item" data-name="${ex.name.toLowerCase()}" data-group="${ex.muscleGroup}">
-        <div style="flex:1" ${loggedIn ? `onclick="navigate('stats', {exerciseId: ${ex.id}})"` : ''}>
+        <div style="flex:1" ${loggedIn ? `onclick="navigate('stats', {exerciseId: '${ex.id}'})"` : ''}>
           <div class="name">${ex.name}</div>
           <div class="muscle-targets" style="margin-top:2px">
             <span class="muscle-tag primary">${primaryStr}</span>
@@ -790,8 +748,8 @@ async function renderExercises(app) {
           ${altStr ? `<div class="meta" style="margin-top:3px">Alt: ${altStr}</div>` : ''}
         </div>
         ${loggedIn ? `<div class="flex gap-8" style="align-items:center">
-          <span class="text-dim" onclick="navigate('stats', {exerciseId: ${ex.id}})">${icons.chart}</span>
-          <button class="delete-set" onclick="deleteExercise(${ex.id})" title="Delete">${icons.trash}</button>
+          <span class="text-dim" onclick="navigate('stats', {exerciseId: '${ex.id}'})">${icons.chart}</span>
+          <button class="delete-set" onclick="deleteExercise('${ex.id}')" title="Delete">${icons.trash}</button>
         </div>` : ''}
       </div>`;
   });
@@ -819,7 +777,7 @@ async function renderStats(app, params) {
       if (history.length === 0) continue;
       const pr = await getExercisePR(ex.id);
       html += `
-        <div class="exercise-list-item" data-name="${ex.name.toLowerCase()}" onclick="navigate('stats', {exerciseId: ${ex.id}})">
+        <div class="exercise-list-item" data-name="${ex.name.toLowerCase()}" onclick="navigate('stats', {exerciseId: '${ex.id}'})">
           <div>
             <div class="name">${ex.name}</div>
             <div class="meta">${ex.muscleGroup} | ${history.length} sets logged</div>
@@ -968,8 +926,8 @@ async function renderTemplates(app) {
               <div class="exercises-preview">${exNames.join(', ')}</div>
             </div>
             <div class="flex gap-8">
-              <button class="btn btn-primary btn-sm" onclick="startFromTemplate(${t.id})">${icons.play}</button>
-              <button class="btn-icon" onclick="deleteTemplate(${t.id})" style="width:32px;height:32px">${icons.trash}</button>
+              <button class="btn btn-primary btn-sm" onclick="startFromTemplate('${t.id}')">${icons.play}</button>
+              <button class="btn-icon" onclick="deleteTemplate('${t.id}')" style="width:32px;height:32px">${icons.trash}</button>
             </div>
           </div>
         </div>`;
@@ -1013,7 +971,7 @@ async function renderSettings(app) {
       <div class="settings-row">
         <div>
           <span>Logged in as </span>
-          <strong>${localStorage.getItem('gymlog_user') || 'User'}</strong>
+          <strong>${auth.currentUser?.email || 'User'}</strong>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="doLogout()">Logout</button>
       </div>
@@ -1303,7 +1261,7 @@ function showRPEPickerDetail(setId, workoutId) {
     <div class="text-sm text-dim mb-12">How hard was that set?</div>
     <div class="rpe-picker">
       ${[6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10].map(v => `
-        <button class="rpe-option" onclick="setRPEDetail(${setId}, ${v}, ${workoutId})">${v}</button>
+        <button class="rpe-option" onclick="setRPEDetail('${setId}', ${v}, '${workoutId}')">${v}</button>
       `).join('')}
     </div>
     <div class="mt-12 text-xs text-dim">
@@ -1332,7 +1290,7 @@ function showDetailExerciseNotes(exerciseId, workoutId) {
       <button class="modal-close" onclick="closeModal()">${icons.x}</button>
     </div>
     <textarea id="detail-exercise-notes" rows="4" placeholder="Form cues, how it felt, etc."></textarea>
-    <button class="btn btn-primary btn-block mt-12" onclick="saveDetailExerciseNotes(${exerciseId}, ${workoutId})">Save Notes</button>
+    <button class="btn btn-primary btn-block mt-12" onclick="saveDetailExerciseNotes('${exerciseId}', '${workoutId}')">Save Notes</button>
   `);
   dbGetByIndex('sets', 'workoutExercise', [workoutId, exerciseId]).then(sets => {
     if (sets.length > 0 && sets[0].notes) {
@@ -1358,7 +1316,7 @@ async function showAddExerciseModalDetail(workoutId) {
   exercises.sort((a, b) => a.name.localeCompare(b.name)).forEach(ex => {
     const primaryStr = (ex.primary || [ex.muscleGroup]).join(', ');
     listHtml += `
-      <div class="exercise-list-item" data-name="${ex.name.toLowerCase()}" data-group="${ex.muscleGroup}" onclick="addExerciseToDetail(${ex.id}, ${workoutId})">
+      <div class="exercise-list-item" data-name="${ex.name.toLowerCase()}" data-group="${ex.muscleGroup}" onclick="addExerciseToDetail('${ex.id}', '${workoutId}')">
         <div>
           <div class="name">${ex.name}</div>
           <div class="muscle-targets" style="margin-top:2px">
@@ -1412,7 +1370,7 @@ function showExerciseNotes(exerciseId) {
       <button class="modal-close" onclick="closeModal()">${icons.x}</button>
     </div>
     <textarea id="exercise-notes" rows="4" placeholder="Form cues, how it felt, etc."></textarea>
-    <button class="btn btn-primary btn-block mt-12" onclick="saveExerciseNotes(${exerciseId})">Save Notes</button>
+    <button class="btn btn-primary btn-block mt-12" onclick="saveExerciseNotes('${exerciseId}')">Save Notes</button>
   `);
 
   // Load existing notes
@@ -1443,7 +1401,7 @@ function showRPEPicker(setId) {
     <div class="text-sm text-dim mb-12">How hard was that set?</div>
     <div class="rpe-picker">
       ${[6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10].map(v => `
-        <button class="rpe-option" onclick="setRPE(${setId}, ${v})">${v}</button>
+        <button class="rpe-option" onclick="setRPE('${setId}', ${v})">${v}</button>
       `).join('')}
     </div>
     <div class="mt-12 text-xs text-dim">
@@ -1473,7 +1431,7 @@ async function showAddExerciseModal() {
   exercises.sort((a, b) => a.name.localeCompare(b.name)).forEach(ex => {
     const primaryStr = (ex.primary || [ex.muscleGroup]).join(', ');
     listHtml += `
-      <div class="exercise-list-item" data-name="${ex.name.toLowerCase()}" data-group="${ex.muscleGroup}" onclick="addExerciseToWorkout(${ex.id})">
+      <div class="exercise-list-item" data-name="${ex.name.toLowerCase()}" data-group="${ex.muscleGroup}" onclick="addExerciseToWorkout('${ex.id}')">
         <div>
           <div class="name">${ex.name}</div>
           <div class="muscle-targets" style="margin-top:2px">
@@ -1705,10 +1663,14 @@ async function doImport(event) {
 async function clearAllData() {
   if (!confirm('This will delete ALL your workout data. Are you sure?')) return;
   if (!confirm('Really? This cannot be undone.')) return;
-  const d = await openDB();
   const stores = ['exercises', 'workouts', 'sets', 'templates', 'bodyweight'];
-  const tx = d.transaction(stores, 'readwrite');
-  stores.forEach(s => tx.objectStore(s).clear());
+  for (const store of stores) {
+    const snapshot = await userCollection(store).get();
+    const batch = firestore.batch();
+    snapshot.docs.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+    _invalidateCache(store);
+  }
   await seedExercises();
   navigate('dashboard');
 }
@@ -1841,36 +1803,40 @@ function getWeekWorkouts(workouts) {
 }
 
 // === INIT ===
-async function init() {
+function init() {
   // Register service worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => {});
   }
-
-  // Seed exercises and historical data
-  await seedExercises();
-  await seedHistoricalData();
-
-  // Check auth state (persists within browser tab session)
-  isAuthenticated = isLoggedIn();
-
-  // Check for active workout
-  const workouts = await dbGetAll('workouts');
-  activeWorkout = workouts.find(w => w.status === 'active') || null;
 
   // Setup nav
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => navigate(item.dataset.view));
   });
 
-  // Initial render
-  if (!isAuthenticated) {
-    navigate('login');
-  } else if (activeWorkout) {
-    navigate('workout');
-  } else {
-    navigate('dashboard');
-  }
+  // Listen for auth state changes (Firebase persists auth across sessions)
+  auth.onAuthStateChanged(async (user) => {
+    isAuthenticated = !!user;
+
+    if (user) {
+      // User is signed in - seed data and load app
+      await seedExercises();
+      await seedHistoricalData();
+
+      const workouts = await dbGetAll('workouts');
+      activeWorkout = workouts.find(w => w.status === 'active') || null;
+
+      if (activeWorkout) {
+        navigate('workout');
+      } else {
+        navigate('dashboard');
+      }
+    } else {
+      // Not signed in
+      activeWorkout = null;
+      navigate('login');
+    }
+  });
 }
 
 // Start
