@@ -441,10 +441,26 @@ const HISTORY_DATA = [
   },
 ];
 
-async function seedHistoricalData() {
-  // Check if already imported
+async function seedHistoricalData(force = false) {
+  // Check if already fully imported (expect ~46 workouts)
   const existingWorkouts = await dbGetAll('workouts');
-  if (existingWorkouts.length > 0) return;
+  if (!force && existingWorkouts.length >= 40) return;
+
+  // If partial import exists, clear it first
+  if (existingWorkouts.length > 0 && existingWorkouts.length < 40) {
+    console.log('Partial import detected (' + existingWorkouts.length + ' workouts). Re-importing...');
+    const allSets = await dbGetAll('sets');
+    // Delete only historical workouts (status=completed with default duration 3600)
+    for (const w of existingWorkouts) {
+      if (w.status === 'completed' && w.duration === 3600) {
+        const wSets = allSets.filter(s => s.workoutId === w.id);
+        for (const s of wSets) await dbDelete('sets', s.id);
+        await dbDelete('workouts', w.id);
+      }
+    }
+  } else if (!force && existingWorkouts.length >= 40) {
+    return;
+  }
 
   const exercises = await dbGetAll('exercises');
   const exerciseByName = {};

@@ -961,6 +961,10 @@ async function renderSettings(app) {
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('import-file').click()">Import</button>
         <input type="file" id="import-file" accept=".json" class="hidden" onchange="doImport(event)">
       </div>
+      <div class="settings-row">
+        <span>Re-import Spreadsheet History</span>
+        <button class="btn btn-ghost btn-sm" onclick="reimportHistory()">Re-import</button>
+      </div>
       <div class="settings-row" style="border-bottom:none">
         <span class="text-danger">Clear All Data</span>
         <button class="btn btn-danger btn-sm" onclick="clearAllData()">Clear</button>
@@ -1658,6 +1662,18 @@ async function doImport(event) {
   await importData(data);
   alert('Data imported successfully!');
   navigate('dashboard');
+}
+
+async function reimportHistory() {
+  if (!confirm('This will re-import all spreadsheet history data. Continue?')) return;
+  try {
+    await seedHistoricalData(true);
+    alert('History re-imported successfully!');
+    navigate('dashboard');
+  } catch (e) {
+    alert('Import failed: ' + e.message + '\nCheck console for details.');
+    console.error('Re-import error:', e);
+  }
 }
 
 async function clearAllData() {
