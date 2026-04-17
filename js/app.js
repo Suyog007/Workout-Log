@@ -1045,6 +1045,10 @@ async function renderSettings(app) {
 // === ACTIONS ===
 
 async function startNewWorkout() {
+  if (activeWorkout) {
+    if (!confirm('You have an active workout. Finish it first or discard?')) return;
+    await cancelWorkout();
+  }
   const workout = {
     name: getDefaultWorkoutName(),
     date: new Date().toISOString().split('T')[0],
@@ -1060,6 +1064,10 @@ async function startNewWorkout() {
 }
 
 async function startFromTemplate(templateId) {
+  if (activeWorkout) {
+    if (!confirm('You have an active workout. Finish it first or discard?')) return;
+    await cancelWorkout();
+  }
   const template = await dbGet('templates', templateId);
   if (!template) return;
 
