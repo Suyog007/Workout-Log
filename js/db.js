@@ -1,115 +1,88 @@
-const DB_NAME = 'GymLogDB';
-const DB_VERSION = 4;
+// === Firestore Database Layer ===
+// All functions maintain the same signatures as the previous IndexedDB version.
+// Data is stored per-user under: users/{uid}/{collection}/{docId}
 
-let db = null;
+// In-memory cache to reduce Firestore reads
+const _cache = {};
 
-function openDB() {
-  return new Promise((resolve, reject) => {
-    if (db) return resolve(db);
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-
-    req.onupgradeneeded = e => {
-      const d = e.target.result;
-
-      // Exercises library
-      if (!d.objectStoreNames.contains('exercises')) {
-        const ex = d.createObjectStore('exercises', { keyPath: 'id', autoIncrement: true });
-        ex.createIndex('name', 'name', { unique: false });
-        ex.createIndex('muscleGroup', 'muscleGroup', { unique: false });
-      }
-
-      // Workouts
-      if (!d.objectStoreNames.contains('workouts')) {
-        const wo = d.createObjectStore('workouts', { keyPath: 'id', autoIncrement: true });
-        wo.createIndex('date', 'date', { unique: false });
-        wo.createIndex('status', 'status', { unique: false });
-      }
-
-      // Sets (the core logging data)
-      if (!d.objectStoreNames.contains('sets')) {
-        const st = d.createObjectStore('sets', { keyPath: 'id', autoIncrement: true });
-        st.createIndex('workoutId', 'workoutId', { unique: false });
-        st.createIndex('exerciseId', 'exerciseId', { unique: false });
-        st.createIndex('workoutExercise', ['workoutId', 'exerciseId'], { unique: false });
-      }
-
-      // Templates (saved routines)
-      if (!d.objectStoreNames.contains('templates')) {
-        d.createObjectStore('templates', { keyPath: 'id', autoIncrement: true });
-      }
-
-      // Body weight log
-      if (!d.objectStoreNames.contains('bodyweight')) {
-        const bw = d.createObjectStore('bodyweight', { keyPath: 'id', autoIncrement: true });
-        bw.createIndex('date', 'date', { unique: false });
-      }
-    };
-
-    req.onsuccess = e => { db = e.target.result; resolve(db); };
-    req.onerror = e => reject(e.target.error);
-  });
+function _invalidateCache(store) {
+  delete _cache[store];
 }
 
-// Generic CRUD helpers
+// === Generic CRUD helpers ===
+
 async function dbAdd(store, data) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(store, 'readwrite');
-    const req = tx.objectStore(store).add(data);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  const ref = userCollection(store);
+  const docRef = await ref.add(data);
+  _invalidateCache(store);
+  return docRef.id;
 }
 
 async function dbPut(store, data) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(store, 'readwrite');
-    const req = tx.objectStore(store).put(data);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  if (!data.id) throw new Error('dbPut requires data.id');
+  const ref = userCollection(store).doc(data.id);
+  const toSave = Object.assign({}, data);
+  delete toSave.id; // Don't store id as a field, it's the doc ID
+  await ref.set(toSave);
+  _invalidateCache(store);
+  return data.id;
 }
 
 async function dbGet(store, id) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(store, 'readonly');
-    const req = tx.objectStore(store).get(id);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  const doc = await userCollection(store).doc(String(id)).get();
+  if (!doc.exists) return undefined;
+  return { id: doc.id, ...doc.data() };
 }
 
 async function dbGetAll(store) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(store, 'readonly');
-    const req = tx.objectStore(store).getAll();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  // Use cache if available
+  if (_cache[store]) return _cache[store];
+  const snapshot = await userCollection(store).get();
+  const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  _cache[store] = results;
+  return results;
 }
 
 async function dbDelete(store, id) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(store, 'readwrite');
-    const req = tx.objectStore(store).delete(id);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
-  });
+  await userCollection(store).doc(String(id)).delete();
+  _invalidateCache(store);
 }
 
 async function dbGetByIndex(store, indexName, value) {
-  const d = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = d.transaction(store, 'readonly');
-    const idx = tx.objectStore(store).index(indexName);
-    const req = idx.getAll(value);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  let query;
+  if (Array.isArray(value)) {
+    // Compound index: e.g. workoutExercise = [workoutId, exerciseId]
+    if (indexName === 'workoutExercise') {
+      query = userCollection(store)
+        .where('workoutId', '==', value[0])
+        .where('exerciseId', '==', value[1]);
+    }
+  } else {
+    // Single field index
+    query = userCollection(store).where(indexName, '==', value);
+  }
+  if (!query) return [];
+  const snapshot = await query.get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+// === Batch write helper (Firestore limit: 500 per batch) ===
+async function dbBatchAdd(store, items) {
+  const ref = userCollection(store);
+  const ids = [];
+  // Chunk into batches of 450 (safe margin under 500)
+  for (let i = 0; i < items.length; i += 450) {
+    const chunk = items.slice(i, i + 450);
+    const batch = firestore.batch();
+    for (const item of chunk) {
+      const docRef = ref.doc();
+      batch.set(docRef, item);
+      ids.push(docRef.id);
+    }
+    await batch.commit();
+  }
+  _invalidateCache(store);
+  return ids;
 }
 
 // Seed default exercises
@@ -335,58 +308,38 @@ async function seedExercises() {
       alternates: ['Stationary Bike', 'Rowing Machine'] },
   ];
 
+  // Use batch writes for efficiency
+  const ids = await dbBatchAdd('exercises', defaults);
   const exerciseIds = {};
-  for (const ex of defaults) {
-    const id = await dbAdd('exercises', ex);
-    exerciseIds[ex.name] = id;
-  }
+  defaults.forEach((ex, i) => exerciseIds[ex.name] = ids[i]);
 
   // Seed default templates (PPL split)
   const templateDefs = [
-    {
-      name: 'Push Day 1',
+    { name: 'Push Day 1',
       exercises: ['Barbell Bench Press', 'Incline Dumbbell Press', 'Seated Dumbbell Shoulder Press',
-                  'Dumbbell Lateral Raise', 'Cable Triceps Pushdown', 'Overhead Dumbbell Triceps Extension', 'Push-Up',
-                  'Treadmill']
-    },
-    {
-      name: 'Push Day 2',
+                  'Dumbbell Lateral Raise', 'Cable Triceps Pushdown', 'Overhead Dumbbell Triceps Extension', 'Push-Up', 'Treadmill'] },
+    { name: 'Push Day 2',
       exercises: ['Dumbbell Bench Press', 'Incline Cable Fly', 'Arnold Press',
-                  'Cable Lateral Raise', 'Skull Crusher', 'Rope Triceps Pushdown',
-                  'Treadmill']
-    },
-    {
-      name: 'Pull Day 1',
+                  'Cable Lateral Raise', 'Skull Crusher', 'Rope Triceps Pushdown', 'Treadmill'] },
+    { name: 'Pull Day 1',
       exercises: ['Conventional Deadlift', 'Pull-Up', 'Barbell Bent-Over Row',
-                  'Seated Cable Row', 'Barbell Bicep Curl', 'Face Pull',
-                  'Treadmill']
-    },
-    {
-      name: 'Pull Day 2',
+                  'Seated Cable Row', 'Barbell Bicep Curl', 'Face Pull', 'Treadmill'] },
+    { name: 'Pull Day 2',
       exercises: ['Lat Pulldown', 'Single-Arm Dumbbell Row', 'T-Bar Row',
-                  'Rear Delt Fly', 'Bayesian Cable Curl', 'Hammer Curl', 'Wrist Curl',
-                  'Treadmill']
-    },
-    {
-      name: 'Leg Day 1',
+                  'Rear Delt Fly', 'Bayesian Cable Curl', 'Hammer Curl', 'Wrist Curl', 'Treadmill'] },
+    { name: 'Leg Day 1',
       exercises: ['Barbell Back Squat', 'Romanian Deadlift', 'Leg Press',
-                  'Lying Leg Curl', 'Hip Abduction Machine', 'Standing Calf Raise',
-                  'Treadmill']
-    },
-    {
-      name: 'Leg Day 2',
+                  'Lying Leg Curl', 'Hip Abduction Machine', 'Standing Calf Raise', 'Treadmill'] },
+    { name: 'Leg Day 2',
       exercises: ['Front Squat', 'Walking Lunge', 'Barbell Hip Thrust',
-                  'Leg Extension', 'Seated Calf Raise',
-                  'Treadmill']
-    },
+                  'Leg Extension', 'Seated Calf Raise', 'Treadmill'] },
   ];
 
-  for (const t of templateDefs) {
-    await dbAdd('templates', {
-      name: t.name,
-      exerciseIds: t.exercises.map(name => exerciseIds[name]).filter(Boolean)
-    });
-  }
+  const templateItems = templateDefs.map(t => ({
+    name: t.name,
+    exerciseIds: t.exercises.map(name => exerciseIds[name]).filter(Boolean)
+  }));
+  await dbBatchAdd('templates', templateItems);
 }
 
 // Get exercise history (all sets for a given exercise, sorted by date)
@@ -428,47 +381,37 @@ async function checkPR(exerciseId, weight, reps) {
   return (weight * reps) > ((bv.weight || 0) * (bv.reps || 0));
 }
 
-// Get last workout data for an exercise (for "beat last time" feature)
+// Get last workout data for an exercise
 async function getLastWorkoutForExercise(exerciseId) {
   const history = await getExerciseHistory(exerciseId);
   if (!history.length) return null;
-
   const lastWorkoutId = history[0].workoutId;
   return history.filter(s => s.workoutId === lastWorkoutId);
 }
 
-// Get last N sessions for an exercise (grouped by workout), excluding a specific workout
+// Get last N sessions for an exercise, excluding a specific workout
 async function getRecentSessionsForExercise(exerciseId, count = 2, excludeWorkoutId = null) {
   const history = await getExerciseHistory(exerciseId);
   if (!history.length) return [];
 
-  // Group by workoutId, preserving order (most recent first), skip excluded workout
   const sessions = [];
   const seen = new Set();
   for (const s of history) {
     if (excludeWorkoutId && s.workoutId === excludeWorkoutId) continue;
     if (!seen.has(s.workoutId)) {
       seen.add(s.workoutId);
-      sessions.push({
-        workoutId: s.workoutId,
-        date: s.workout.date,
-        sets: []
-      });
+      sessions.push({ workoutId: s.workoutId, date: s.workout.date, sets: [] });
     }
     sessions.find(sess => sess.workoutId === s.workoutId).sets.push(s);
   }
-
   return sessions.slice(0, count);
 }
 
-// Export all data as JSON (for backup)
+// Export all data as JSON
 async function exportAllData() {
   const [exercises, workouts, sets, templates, bodyweight] = await Promise.all([
-    dbGetAll('exercises'),
-    dbGetAll('workouts'),
-    dbGetAll('sets'),
-    dbGetAll('templates'),
-    dbGetAll('bodyweight'),
+    dbGetAll('exercises'), dbGetAll('workouts'), dbGetAll('sets'),
+    dbGetAll('templates'), dbGetAll('bodyweight'),
   ]);
   return { exercises, workouts, sets, templates, bodyweight, exportDate: new Date().toISOString() };
 }
