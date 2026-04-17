@@ -756,6 +756,7 @@ input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
 .mb-12 { margin-bottom: 12px; }
 .mb-16 { margin-bottom: 16px; }
 .p-16 { padding: 16px; }
+.text-center { text-align: center; }
 
 /* === Page transitions === */
 #app {
