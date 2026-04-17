@@ -1835,7 +1835,8 @@ function init() {
     isAuthenticated = !!user;
 
     if (user) {
-      // User is signed in - seed data and load app
+      // User is signed in - load all data into memory cache
+      await warmCache();
       await seedExercises();
       await seedHistoricalData();
 

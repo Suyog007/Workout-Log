@@ -1,12 +1,23 @@
 // === Firestore Database Layer ===
-// All functions maintain the same signatures as the previous IndexedDB version.
-// Data is stored per-user under: users/{uid}/{collection}/{docId}
+// Smart caching: keep full collections in memory, update cache on writes
+// instead of invalidating. This avoids network round-trips on every navigation.
 
-// In-memory cache to reduce Firestore reads
 const _cache = {};
+let _cacheReady = {};
 
-function _invalidateCache(store) {
-  delete _cache[store];
+// Warm up cache — load all collections into memory at once on login
+async function warmCache() {
+  const stores = ['exercises', 'workouts', 'sets', 'templates', 'bodyweight'];
+  const promises = stores.map(async store => {
+    const snapshot = await userCollection(store).get();
+    _cache[store] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    _cacheReady[store] = true;
+  });
+  await Promise.all(promises);
+}
+
+function _ensureCache(store) {
+  if (!_cache[store]) _cache[store] = [];
 }
 
 // === Generic CRUD helpers ===
@@ -14,7 +25,10 @@ function _invalidateCache(store) {
 async function dbAdd(store, data) {
   const ref = userCollection(store);
   const docRef = await ref.add(data);
-  _invalidateCache(store);
+  const newItem = { id: docRef.id, ...data };
+  // Update cache in place
+  _ensureCache(store);
+  _cache[store].push(newItem);
   return docRef.id;
 }
 
@@ -22,43 +36,63 @@ async function dbPut(store, data) {
   if (!data.id) throw new Error('dbPut requires data.id');
   const ref = userCollection(store).doc(data.id);
   const toSave = Object.assign({}, data);
-  delete toSave.id; // Don't store id as a field, it's the doc ID
+  delete toSave.id;
   await ref.set(toSave);
-  _invalidateCache(store);
+  // Update cache in place
+  _ensureCache(store);
+  const idx = _cache[store].findIndex(item => item.id === data.id);
+  if (idx >= 0) _cache[store][idx] = data;
+  else _cache[store].push(data);
   return data.id;
 }
 
 async function dbGet(store, id) {
+  // Try cache first
+  _ensureCache(store);
+  if (_cacheReady[store]) {
+    const cached = _cache[store].find(item => item.id === String(id));
+    if (cached) return cached;
+  }
   const doc = await userCollection(store).doc(String(id)).get();
   if (!doc.exists) return undefined;
   return { id: doc.id, ...doc.data() };
 }
 
 async function dbGetAll(store) {
-  // Use cache if available
-  if (_cache[store]) return _cache[store];
+  _ensureCache(store);
+  if (_cacheReady[store]) return _cache[store];
   const snapshot = await userCollection(store).get();
-  const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  _cache[store] = results;
-  return results;
+  _cache[store] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  _cacheReady[store] = true;
+  return _cache[store];
 }
 
 async function dbDelete(store, id) {
   await userCollection(store).doc(String(id)).delete();
-  _invalidateCache(store);
+  _ensureCache(store);
+  _cache[store] = _cache[store].filter(item => item.id !== String(id));
 }
 
 async function dbGetByIndex(store, indexName, value) {
+  // Use cached data instead of querying Firestore
+  _ensureCache(store);
+  if (_cacheReady[store]) {
+    return _cache[store].filter(item => {
+      if (Array.isArray(value) && indexName === 'workoutExercise') {
+        return item.workoutId === value[0] && item.exerciseId === value[1];
+      }
+      return item[indexName] === value;
+    });
+  }
+  // Fallback to Firestore query if cache not ready
   let query;
   if (Array.isArray(value)) {
-    // Compound index: e.g. workoutExercise = [workoutId, exerciseId]
     if (indexName === 'workoutExercise') {
       query = userCollection(store)
         .where('workoutId', '==', value[0])
         .where('exerciseId', '==', value[1]);
     }
   } else {
-    // Single field index
     query = userCollection(store).where(indexName, '==', value);
   }
   if (!query) return [];
@@ -66,11 +100,10 @@ async function dbGetByIndex(store, indexName, value) {
   return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
-// === Batch write helper (Firestore limit: 500 per batch) ===
+// === Batch write helper ===
 async function dbBatchAdd(store, items) {
   const ref = userCollection(store);
   const ids = [];
-  // Chunk into batches of 450 (safe margin under 500)
   for (let i = 0; i < items.length; i += 450) {
     const chunk = items.slice(i, i + 450);
     const batch = firestore.batch();
@@ -81,7 +114,11 @@ async function dbBatchAdd(store, items) {
     }
     await batch.commit();
   }
-  _invalidateCache(store);
+  // Update cache with all new items
+  _ensureCache(store);
+  items.forEach((item, i) => {
+    _cache[store].push({ id: ids[i], ...item });
+  });
   return ids;
 }
 
@@ -308,12 +345,10 @@ async function seedExercises() {
       alternates: ['Stationary Bike', 'Rowing Machine'] },
   ];
 
-  // Use batch writes for efficiency
   const ids = await dbBatchAdd('exercises', defaults);
   const exerciseIds = {};
   defaults.forEach((ex, i) => exerciseIds[ex.name] = ids[i]);
 
-  // Seed default templates (PPL split)
   const templateDefs = [
     { name: 'Push Day 1',
       exercises: ['Barbell Bench Press', 'Incline Dumbbell Press', 'Seated Dumbbell Shoulder Press',
@@ -342,7 +377,7 @@ async function seedExercises() {
   await dbBatchAdd('templates', templateItems);
 }
 
-// Get exercise history (all sets for a given exercise, sorted by date)
+// Get exercise history
 async function getExerciseHistory(exerciseId) {
   const sets = await dbGetByIndex('sets', 'exerciseId', exerciseId);
   const workouts = await dbGetAll('workouts');
@@ -355,7 +390,7 @@ async function getExerciseHistory(exerciseId) {
     .sort((a, b) => new Date(b.workout.date) - new Date(a.workout.date));
 }
 
-// Get personal record for an exercise (highest weight x reps combination)
+// Get personal record
 async function getExercisePR(exerciseId) {
   const sets = await dbGetByIndex('sets', 'exerciseId', exerciseId);
   if (!sets.length) return null;
@@ -373,7 +408,6 @@ async function getExercisePR(exerciseId) {
   return { bestVolume, heaviestWeight };
 }
 
-// Check if a set is a new PR
 async function checkPR(exerciseId, weight, reps) {
   const pr = await getExercisePR(exerciseId);
   if (!pr) return true;
@@ -381,7 +415,6 @@ async function checkPR(exerciseId, weight, reps) {
   return (weight * reps) > ((bv.weight || 0) * (bv.reps || 0));
 }
 
-// Get last workout data for an exercise
 async function getLastWorkoutForExercise(exerciseId) {
   const history = await getExerciseHistory(exerciseId);
   if (!history.length) return null;
@@ -389,7 +422,6 @@ async function getLastWorkoutForExercise(exerciseId) {
   return history.filter(s => s.workoutId === lastWorkoutId);
 }
 
-// Get last N sessions for an exercise, excluding a specific workout
 async function getRecentSessionsForExercise(exerciseId, count = 2, excludeWorkoutId = null) {
   const history = await getExerciseHistory(exerciseId);
   if (!history.length) return [];
@@ -407,7 +439,6 @@ async function getRecentSessionsForExercise(exerciseId, count = 2, excludeWorkou
   return sessions.slice(0, count);
 }
 
-// Export all data as JSON
 async function exportAllData() {
   const [exercises, workouts, sets, templates, bodyweight] = await Promise.all([
     dbGetAll('exercises'), dbGetAll('workouts'), dbGetAll('sets'),
@@ -416,7 +447,6 @@ async function exportAllData() {
   return { exercises, workouts, sets, templates, bodyweight, exportDate: new Date().toISOString() };
 }
 
-// Import data from JSON
 async function importData(data) {
   const stores = ['exercises', 'workouts', 'sets', 'templates', 'bodyweight'];
   for (const store of stores) {
