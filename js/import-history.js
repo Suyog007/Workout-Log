@@ -467,11 +467,12 @@ async function seedHistoricalData() {
         date: isoDate,
         startTime: new Date(isoDate).getTime(),
         status: 'completed',
-        duration: 3600, // default 1 hour
+        duration: 3600,
         notes: ''
       });
 
-      // Add sets for each exercise
+      // Collect all sets for this workout, then batch insert
+      const setsToAdd = [];
       for (const exercise of template.exercises) {
         const exerciseId = exerciseByName[exercise.name];
         if (!exerciseId) {
@@ -483,16 +484,12 @@ async function seedHistoricalData() {
         for (const setRow of exercise.sets) {
           const raw = setRow[dateIdx];
           const parsed = parseSet(raw);
-          if (!parsed) {
-            skipped++;
-            continue;
-          }
-          if (parsed.reps === null) {
+          if (!parsed || parsed.reps === null) {
             skipped++;
             continue;
           }
 
-          await dbAdd('sets', {
+          setsToAdd.push({
             workoutId: workoutId,
             exerciseId: exerciseId,
             setNumber: setNumber,
@@ -506,6 +503,11 @@ async function seedHistoricalData() {
           setNumber++;
           imported++;
         }
+      }
+
+      // Batch write all sets for this workout
+      if (setsToAdd.length > 0) {
+        await dbBatchAdd('sets', setsToAdd);
       }
     }
   }
@@ -541,6 +543,7 @@ async function recalculatePRs() {
     });
 
     let bestVolume = 0;
+    const updatedSets = [];
     for (const s of sets) {
       const vol = (s.weight || 0) * (s.reps || 0);
       if (vol > bestVolume && vol > 0) {
@@ -549,6 +552,10 @@ async function recalculatePRs() {
       } else {
         s.isPR = false;
       }
+      updatedSets.push(s);
+    }
+    // Batch update PR flags
+    for (const s of updatedSets) {
       await dbPut('sets', s);
     }
   }
