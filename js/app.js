@@ -157,8 +157,11 @@ function renderLogin(app, params = {}) {
         </div>
       </div>`;
 
-    // Auto focus password
-    setTimeout(() => document.getElementById('login-pass')?.focus(), 200);
+    // Auto focus password field
+    setTimeout(() => {
+      const passInput = document.getElementById('login-pass');
+      if (passInput) passInput.focus();
+    }, 200);
   }
 }
 
@@ -1031,6 +1034,8 @@ async function renderSettings(app) {
       <div id="bw-history" class="mt-12"></div>
     </div>
   </div>`;
+
+  html += `<div class="text-center text-xs text-muted" style="padding:20px 0">GymLog v1.0</div>`;
 
   app.innerHTML = html;
 
