@@ -1,116 +1,146 @@
-# GymLog - Workout Tracker PWA
+# Workout Log
 
-A mobile-first Progressive Web App for tracking gym workouts, built with vanilla HTML/CSS/JS. Works fully offline with IndexedDB storage. No frameworks, no build step, just open and lift.
+A single-user, mobile-first PWA for running a **6-week PPL ×2 block** with double
+progression. Open it at the gym and it already knows what you lifted last time
+and what to do today.
 
-## Features
+No build step, no `package.json`, no framework — plain ES modules served
+statically. Push to `main` and Vercel deploys it as-is.
 
-### Workout Logging
-- **PPL Split Templates** - Pre-built Push (1/2), Pull (1/2), and Leg (1/2) day routines
-- **Set Tracking** - Log weight, reps, and RPE for every set
-- **Cardio Support** - Track duration, distance, and speed for cardio exercises
-- **Rest Timer** - Auto-starts between sets with +15s and skip controls
-- **Workout Timer** - Tracks total session duration
-- **Notes** - Add form cues and notes per exercise
+---
 
-### Progress Tracking
-- **Personal Records** - Auto-detects PRs showing both heaviest weight and best volume
-- **Previous Sessions** - Shows your last 2 sessions for each exercise while logging
-- **Progress Charts** - Per-exercise weight and volume charts over time (pure canvas, no libraries)
-- **Dashboard Stats** - Weekly count, total workouts, total volume, PRs hit
+## The program
 
-### Exercise Library
-- **58 exercises** across Chest, Back, Shoulders, Legs, Arms, Core, and Cardio
-- **Muscle targeting** - Primary and secondary muscles shown for every exercise
-- **Alternate exercises** - Suggested substitutes for each movement
-- **Custom exercises** - Add your own with muscle group and type
+| Day | Workout | Emphasis |
+|-----|---------|----------|
+| Mon | Push A  | Chest |
+| Tue | Pull A  | Back |
+| Wed | Legs A  | Quads |
+| Thu | Push B  | Upper chest / shoulders |
+| Fri | Pull B  | Lats / rear delts |
+| Sat | Legs B  | Hamstrings / posterior chain |
+| Sun | Rest    | — |
 
-### Templates & History
-- **6 pre-built PPL templates** with all exercises pre-loaded
-- **Save any workout as a template** for future quick-start
-- **Full workout history** with search and filtering
-- **Editable past workouts** - Fix weights/reps even after finishing
+Plus ~10,000 steps a day and ~20 min of incline treadmill after lifting.
 
-### Data & Privacy
-- **Offline-first** - Service worker caches everything, works without internet
-- **Installable PWA** - Add to home screen on any device
-- **Client-side auth** - Password-protected with SHA-256 hashing
-- **Export/Import** - Backup your data as JSON anytime
-- **Body weight log** - Track weight over time in settings
+The block runs for 6 weeks and **never resets itself**. At the end of week 6 the
+app shows a block report and offers to start a new block; exercise history,
+records and body metrics all carry over.
 
-## Tech Stack
+## Progression
 
-- **Frontend**: Vanilla HTML, CSS, JavaScript (zero dependencies)
-- **Storage**: IndexedDB (via raw API, no wrapper library)
-- **Offline**: Service Worker with cache-first strategy
-- **Charts**: Canvas 2D API (no chart libraries)
-- **Deploy**: Netlify (static hosting, no build step)
+Double progression, applied per exercise:
 
-## Getting Started
+- Hit the **top of the rep range on every prescribed set** → *"Increase to 52.5 kg
+  next session."*
+- Anything less → *"Keep 50 kg — try to beat 29 total reps."*
 
-### Local Development
-```bash
-# Clone the repo
-git clone https://github.com/Suyog007/Workout-Log.git
-cd Workout-Log
+Nothing is ever forced; the app only recommends. The jump size is per exercise
+(`increment` in the library — 5 kg for barbell lower body, 2.5 kg for most upper
+body, 1.25 kg for lateral raises, and so on).
 
-# Serve locally (any static server works)
-python3 -m http.server 8080
+RIR (0–4+) is recorded alongside each set and can be switched off globally in
+Profile. It is advisory: it annotates a recommendation, it never blocks one.
 
-# Open http://localhost:8080
-```
+## What it tracks
 
-### Deploy to Netlify
-1. Connect the repo to Netlify
-2. Set publish directory to `.` (root)
-3. No build command needed
-4. Deploy!
+Workouts and sets · rest and workout timers · body weight (with a 7-day average
+that leads the chart) · weekly waist · daily steps vs a 10k goal · cardio ·
+personal records · pre-workout readiness (energy / soreness / sleep) ·
+workout- and exercise-level notes.
 
-The `netlify.toml` is already configured with SPA routing.
+---
 
-### First Time Setup
-1. Open the app
-2. Create a username and password
-3. Your PPL templates are pre-loaded and ready to go
-4. Tap any workout day on the dashboard to start
+## Data
 
-## Data Format
-
-The app imports historical workout data on first load. Weight notation used in the spreadsheet logs:
-
-| Notation | Meaning |
-|----------|---------|
-| `10(12)` | 10kg, 12 reps |
-| `Third(15)` | Cable plate 3 = 20kg, 15 reps |
-| `Free(15)` | Bodyweight, 15 reps |
-| `10kg(12)` | 10kg, 12 reps |
-| `Fourth(30) drop` | 25kg, 30 reps (drop set) |
-
-Cable plate formula: `plate_number * 5 + 5` (First=10kg, Second=15kg, Third=20kg, etc.)
-
-## Project Structure
+Everything is local-first in **IndexedDB** (`workoutlog`), held in memory for
+instant rendering. Every document carries `id`, `updatedAt`, `dirty` and an
+optional `deleted` tombstone, which is what makes sync possible without the rest
+of the app knowing about it.
 
 ```
-.
-├── index.html              # App shell with navigation
-├── manifest.json           # PWA manifest
-├── sw.js                   # Service worker
-├── netlify.toml            # Netlify deploy config
-├── css/
-│   └── styles.css          # Dark theme, mobile-first styles
-├── js/
-│   ├── db.js               # IndexedDB layer, exercise seed data, templates
-│   ├── app.js              # SPA router, all views, auth, actions
-│   └── import-history.js   # Historical data parser and importer
-└── icons/
-    ├── icon.svg            # Source SVG
-    ├── icon-192.png        # PWA icon
-    └── icon-512.png        # PWA icon
+meta  programs  exercises  sessions  exerciseSessions  setLogs
+bodyWeight  waist  steps  cardio  prs  readiness
 ```
 
-## Screenshots
+### Cloud backup (optional, off by default)
 
-> Coming soon - add screenshots of the app in action here.
+The app needs no account. In **Profile → Cloud backup** you can sign in to
+Firebase, after which local writes are pushed in the background and remote
+changes are merged newest-write-wins on `updatedAt`. This exists so your history
+survives a lost or wiped phone — an anonymous account could not be recovered on a
+new device, which is why it uses a real email sign-in.
 
-## License
+Remote collections are namespaced `v2_*` under `users/{uid}/`, so they can never
+collide with data from the previous version of this app. Once signed in, Profile
+offers a one-tap **"Clean up old app data in the cloud"** that deletes the old
+`exercises` / `workouts` / `sets` / `templates` / `bodyweight` collections.
 
-MIT
+Point the backup at a different project by editing `js/config/firebase.js`.
+`firestore.rules` restricts every user to documents under their own `uid`.
+
+**Export / Import** in Profile writes and reads a plain JSON backup — worth doing
+occasionally whether or not cloud backup is on.
+
+---
+
+## Changing the program
+
+`js/config/program.js` is the single source of truth: the exercise library,
+each day's slots, sets, rep ranges, weight increments and rest times. Edit it and
+redeploy, or change things in the app:
+
+- **Profile → Exercise library** — add, edit or archive exercises. Archiving keeps
+  every set ever logged against that exercise.
+- **Profile → Edit program days** — reorder, add, remove or retarget a day's
+  exercises for the current block.
+- **Swap exercise** inside a running workout — for this session, or for the whole
+  block. Old history stays attached to the old exercise.
+
+---
+
+## Project layout
+
+```
+index.html            app shell
+sw.js                 service worker (precache + stale-while-revalidate)
+manifest.json         PWA manifest
+vercel.json           cache headers (sw.js / index.html must not be cached)
+css/styles.css        design tokens + all styling
+js/
+  config/program.js   the program: exercises, days, sets, rep ranges
+  config/firebase.js  optional backup target
+  core/store.js       IndexedDB + in-memory cache + change events
+  core/model.js       domain operations (programs, sessions, metrics)
+  core/sync.js        optional Firestore push/pull
+  core/router.js      hash router
+  core/util.js        dates, numbers, formatting
+  logic/progression.js  double progression
+  logic/prs.js          personal-record detection
+  logic/analytics.js    dashboard / weekly / block aggregations
+  ui/                 DOM toolkit, charts, timers, entry sheets
+  views/              one module per screen
+```
+
+## Running locally
+
+```sh
+python3 -m http.server 8731     # any static server; ES modules need http://
+open http://localhost:8731
+```
+
+## Deploying
+
+Static root deploy — no build command, no install step. Push to `main`.
+
+Two things keep a new deploy from being masked by the old one:
+
+1. `vercel.json` marks `sw.js`, `index.html` and `manifest.json` as
+   `must-revalidate`.
+2. The service worker serves same-origin assets **stale-while-revalidate**, so a
+   deploy lands on the next launch without anything needing to be bumped.
+   Bumping `BUILD` in `sw.js` additionally purges every older cache on activate —
+   worth doing when asset names or the shell list change.
+
+If you add a file under `js/`, add it to `SHELL` in `sw.js` so a fresh install is
+usable offline immediately.

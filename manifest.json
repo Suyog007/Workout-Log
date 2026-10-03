@@ -1,24 +1,23 @@
 {
-  "name": "GymLog - Workout Tracker",
-  "short_name": "GymLog",
-  "description": "Track your gym workouts, PRs, and progress offline-first",
+  "name": "Workout Log",
+  "short_name": "Workout",
+  "description": "Personal gym tracker: 6-week PPL x2 block, double progression, body weight, steps and cardio.",
+  "id": "/",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0a0a0f",
-  "theme_color": "#6c5ce7",
   "orientation": "portrait",
+  "background_color": "#0e0f13",
+  "theme_color": "#0e0f13",
+  "categories": ["health", "fitness", "lifestyle"],
   "icons": [
-    {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Start workout", "url": "/#/workout" },
+    { "name": "Log body weight", "url": "/#/metrics" },
+    { "name": "Progress", "url": "/#/progress" }
   ]
 }

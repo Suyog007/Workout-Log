@@ -1,15 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="102" fill="#6c5ce7"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Workout Log">
+  <rect width="512" height="512" rx="108" fill="#2a78d6"/>
   <g fill="#fff">
-    <!-- Bar -->
-    <rect x="128" y="240" width="256" height="32" rx="8"/>
-    <!-- Left outer plate -->
-    <rect x="108" y="176" width="40" height="160" rx="10"/>
-    <!-- Left inner plate -->
-    <rect x="148" y="196" width="32" height="120" rx="8"/>
-    <!-- Right outer plate -->
-    <rect x="364" y="176" width="40" height="160" rx="10"/>
-    <!-- Right inner plate -->
-    <rect x="332" y="196" width="32" height="120" rx="8"/>
+    <rect x="128" y="240" width="256" height="32" rx="10"/>
+    <rect x="104" y="172" width="42" height="168" rx="13"/>
+    <rect x="150" y="198" width="32" height="116" rx="10"/>
+    <rect x="366" y="172" width="42" height="168" rx="13"/>
+    <rect x="330" y="198" width="32" height="116" rx="10"/>
   </g>
 </svg>
