@@ -227,6 +227,30 @@ export async function clearDirty(store, ids) {
 }
 
 /** Apply a remote document, newest-write-wins on `updatedAt`. */
+/**
+ * Flag every local document for upload again. Needed after the cloud copy is
+ * erased: push only sends `dirty` documents, so without this the cloud would
+ * stay empty while the app reported "up to date".
+ */
+export async function markAllDirty() {
+  await open();
+  let n = 0;
+  for (const name of STORE_NAMES) {
+    const docs = allRaw(name).filter((d) => !(name === 'meta' && d.id === 'syncCursor'));
+    if (!docs.length) continue;
+    const t = tx([name], 'readwrite');
+    const os = t.objectStore(name);
+    docs.forEach((d) => {
+      const next = { ...d, dirty: 1 };
+      map(name).set(d.id, next);
+      os.put(next);
+      n++;
+    });
+    await txDone(t);
+  }
+  return n;
+}
+
 export async function applyRemote(store, doc) {
   await open();
   const local = map(store).get(doc.id);

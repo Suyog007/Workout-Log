@@ -222,7 +222,7 @@ export const DEFAULT_SETTINGS = {
   stepGoal: 10000,
   defaultCardio: { type: 'Incline treadmill', durationMin: 20, speed: 5.5, incline: 10 },
   readinessEnabled: true,
-  syncEnabled: false,
+  syncEnabled: true,
 };
 
 // Charts default to the exercises worth watching across a block.

@@ -10,7 +10,7 @@ import * as sync from '../core/sync.js';
 import * as timer from '../ui/timer.js';
 import { go } from '../core/router.js';
 import { applyTheme } from '../app-theme.js';
-import { fmtDate, fmtInt, today, startOfWeek } from '../core/util.js';
+import { fmtDate, fmtInt, today, toISODate, startOfWeek } from '../core/util.js';
 
 export const title = 'Profile';
 export const tab = 'profile';
@@ -184,6 +184,23 @@ function backupCard(settings) {
         h('span', { class: 'k' }, 'Account'),
         h('span', { class: 'v small' }, st.email || '—')
       ));
+      if (st.uid) {
+        children.push(h('div', { class: 'kv' },
+          h('span', { class: 'k' }, 'User ID'),
+          h('button', {
+            class: 'link-btn', type: 'button',
+            title: 'Copy — paste into firestore.rules to lock the project to this account',
+            onClick: async () => {
+              try {
+                await navigator.clipboard.writeText(st.uid);
+                toast('User ID copied', 'good');
+              } catch {
+                toast(st.uid);
+              }
+            },
+          }, `${st.uid.slice(0, 10)}…`, icon('download', 14))
+        ));
+      }
       children.push(h('div', { class: 'kv' },
         h('span', { class: 'k' }, 'Status'),
         h('span', { class: 'v' }, st.status === 'syncing' ? pill('Syncing…', 'accent') : st.pending ? pill(`${st.pending} to upload`, 'warn') : pill('Up to date', 'good'))
@@ -208,23 +225,29 @@ function backupCard(settings) {
           },
         })
       ));
+      const reset = sync.cloudResetInfo();
+      if (reset) {
+        children.push(h('p', { class: 'xs dim' },
+          `Database cleared on ${fmtDate(toISODate(new Date(reset.resetAt)))} \u2014 ${fmtInt(reset.removed)} old documents removed. Every set now writes straight to the cloud.`));
+      }
       children.push(h('hr', { class: 'sep' }));
-      children.push(linkButton('Clean up old app data in the cloud', async () => {
-        try {
-          const count = await sync.legacyCount();
-          if (!count) { toast('Nothing left from the old app'); return; }
+      children.push(button('Replace cloud copy with this device', {
+        variant: 'secondary', class: 'btn-block', iconName: 'upload',
+        onClick: async () => {
           const ok = await confirmSheet({
-            title: 'Delete old app data?',
-            body: `${count}+ documents from the previous version of this app are still in the cloud. They are not used any more. Delete them permanently?`,
-            confirmLabel: 'Delete old data',
+            title: 'Replace the cloud copy?',
+            body: 'Erases everything this app has stored in the cloud, then uploads a fresh copy of what is on this device. Use this once, after clearing out the old data.',
+            confirmLabel: 'Replace cloud copy',
           });
           if (!ok) return;
-          const removed = await sync.wipeLegacy();
-          toast(`Deleted ${removed} old documents`, 'good');
-        } catch (err) {
-          toast(err.message, 'danger');
-        }
-      }, 'trash'));
+          try {
+            const { removed, uploaded } = await sync.replaceCloudWithLocal();
+            toast(`Cloud reset — ${removed} removed, ${uploaded} uploaded`, 'good');
+          } catch (err) {
+            toast(err.message, 'danger');
+          }
+        },
+      }));
       children.push(linkButton('Sign out of backup', () => sync.signOut().then(() => go('/profile')), 'close'));
     }
 
@@ -242,16 +265,18 @@ function signInForm() {
   let password = '';
   const emailInput = textInput({ placeholder: 'you@example.com', type: 'email', onChange: (v) => { email = v; }, label: 'Email' });
   const passInput = textInput({ placeholder: 'Password', type: 'password', onChange: (v) => { password = v; }, label: 'Password' });
-  const status = h('p', { class: 'xs dim' }, 'Sign in to the account the backup belongs to.');
+  const firstRun = !sync.cloudResetInfo();
+  const status = h('p', { class: 'xs dim' }, firstRun
+    ? 'Signing in clears this account\u2019s database and uploads what is on this device. It happens once.'
+    : 'Sign in to the account the backup belongs to.');
 
-  const submit = async (mode) => {
+  const submit = async () => {
     email = emailInput.value.trim();
     password = passInput.value;
     if (!email || !password) { status.textContent = 'Enter an email and password.'; return; }
     status.textContent = 'Connecting…';
     try {
-      if (mode === 'up') await sync.signUp(email, password);
-      else await sync.signIn(email, password);
+      await sync.signIn(email, password);
       toast('Cloud backup connected', 'good');
       go('/profile');
     } catch (err) {
@@ -262,10 +287,7 @@ function signInForm() {
   return h('div', { class: 'stack' },
     field('Email', emailInput),
     field('Password', passInput),
-    h('div', { class: 'row', style: { gap: '8px' } },
-      button('Sign in', { variant: 'primary', class: 'grow', onClick: () => submit('in') }),
-      button('Create account', { variant: 'secondary', onClick: () => submit('up') })
-    ),
+    button('Sign in', { variant: 'primary', class: 'btn-block', onClick: () => submit() }),
     status
   );
 }

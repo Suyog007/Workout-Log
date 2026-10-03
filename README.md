@@ -63,21 +63,43 @@ meta  programs  exercises  sessions  exerciseSessions  setLogs
 bodyWeight  waist  steps  cardio  prs  readiness
 ```
 
-### Cloud backup (optional, off by default)
+### Cloud backup (on by default)
 
-The app needs no account. In **Profile → Cloud backup** you can sign in to
-Firebase, after which local writes are pushed in the background and remote
-changes are merged newest-write-wins on `updatedAt`. This exists so your history
-survives a lost or wiped phone — an anonymous account could not be recovered on a
-new device, which is why it uses a real email sign-in.
+The app opens with no login and works entirely offline, but cloud backup is on
+out of the box because local-only history dies with the phone. It needs **one**
+sign-in — Firestore has no unauthenticated write path — and after that it is
+hands-off: every set writes straight to the database in the background.
 
-Remote collections are namespaced `v2_*` under `users/{uid}/`, so they can never
-collide with data from the previous version of this app. Once signed in, Profile
-offers a one-tap **"Clean up old app data in the cloud"** that deletes the old
-`exercises` / `workouts` / `sets` / `templates` / `bodyweight` collections.
+The first time an account connects, the app **clears the database** (the previous
+version's `exercises` / `workouts` / `sets` / `templates` / `bodyweight`
+collections, plus any `v2_*` leftovers) and uploads what is on the device as the
+new contents. A marker is written to the cloud as well as locally, so installing
+the app on a second phone pulls the existing data down instead of wiping it.
+
+Remote collections are namespaced `v2_*` under `users/{uid}/`. Merges are
+newest-write-wins on `updatedAt`.
 
 Point the backup at a different project by editing `js/config/firebase.js`.
-`firestore.rules` restricts every user to documents under their own `uid`.
+
+#### Locking the project down
+
+The Firebase web `apiKey` is published in the app bundle — that is by design, it
+identifies the project and is not a secret. **The rules, not the client, are what
+guard the data.** `firestore.rules` pins every read and write to a single uid and
+denies everything else, so an account someone else creates in the project can
+reach nothing.
+
+Before it will work you must fill in your uid:
+
+1. Sign in, then Profile → Cloud backup → tap the **User ID** to copy it.
+2. Replace `PASTE_YOUR_UID_HERE` in `firestore.rules`.
+3. Publish it — Firebase Console → Firestore Database → Rules, or
+   `firebase deploy --only firestore:rules`. The file in this repo is **not**
+   deployed automatically.
+
+Worth also turning off account creation in Firebase Console → Authentication →
+Settings → User actions. The app has no sign-up button, but the REST API behind
+that public key does.
 
 **Export / Import** in Profile writes and reads a plain JSON backup — worth doing
 occasionally whether or not cloud backup is on.

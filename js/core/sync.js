@@ -21,6 +21,7 @@ let wired = false;
 export const state = {
   status: 'off',        // off | connecting | signed-out | ready | syncing | error
   email: null,
+  uid: null,
   lastSync: null,
   error: null,
   pending: 0,
@@ -102,11 +103,23 @@ export async function connect() {
   auth.onAuthStateChanged((u) => {
     user = u;
     if (!u) {
-      publish({ status: 'signed-out', email: null });
+      publish({ status: 'signed-out', email: null, uid: null });
       return;
     }
-    publish({ status: 'ready', email: u.email || null });
-    sync({ pull: true });
+    publish({ status: 'ready', email: u.email || null, uid: u.uid });
+    (async () => {
+      try {
+        const reset = await resetCloudOnce();
+        if (reset) {
+          window.dispatchEvent(new CustomEvent('wl:cloud-reset', { detail: reset }));
+        }
+      } catch (err) {
+        console.error('[sync] one-time reset failed', err);
+        publish({ status: 'error', error: err.message || 'Could not reset the cloud database' });
+        return;
+      }
+      sync({ pull: true });
+    })();
   });
   if (!wired) {
     wired = true;
@@ -121,20 +134,28 @@ export async function signIn(email, password) {
   return auth.currentUser;
 }
 
-export async function signUp(email, password) {
-  await loadSdk();
-  await auth.createUserWithEmailAndPassword(email, password);
-  return auth.currentUser;
-}
-
 export async function signOut() {
   if (!auth) return;
   await auth.signOut();
   user = null;
-  publish({ status: 'signed-out', email: null });
+  publish({ status: 'signed-out', email: null, uid: null });
 }
 
 export const isSignedIn = () => !!user;
+
+/** The signed-in account's uid — paste this into firestore.rules to pin them. */
+export const currentUid = () => (user ? user.uid : null);
+
+/** Erase the cloud copy, then re-upload everything held on this device. */
+export async function replaceCloudWithLocal() {
+  if (!user || !db) throw new Error('Not signed in');
+  const removed = await wipeRemote();
+  await store.put('meta', { id: 'syncCursor', lastPullAt: Date.now() }, { silent: true });
+  await store.clearDirty('meta', ['syncCursor']);
+  const queuedCount = await store.markAllDirty();
+  await sync({ pull: false });
+  return { removed, uploaded: queuedCount };
+}
 
 const scheduleSync = debounce(() => sync({ pull: false }), 2500);
 
@@ -234,6 +255,49 @@ async function deleteCollection(path) {
   }
   return removed;
 }
+
+const RESET_DOC = 'cloudReset';
+
+/**
+ * First time this account connects, clear the database out and upload this
+ * device as the new contents.
+ *
+ * The marker is written to the cloud as well as locally, so installing the app
+ * on a second phone pulls the existing data down instead of wiping it.
+ */
+export async function resetCloudOnce() {
+  if (!user || !db) return null;
+  if (store.get('meta', RESET_DOC)) return null;
+
+  const root = db.collection('users').doc(user.uid);
+  const remoteMarker = await root.collection(remote('meta')).doc(RESET_DOC).get();
+  if (remoteMarker.exists) {
+    // Another device already did this. Record it locally and leave the data alone.
+    await store.applyRemote('meta', { id: RESET_DOC, ...remoteMarker.data() });
+    return null;
+  }
+
+  publish({ status: 'syncing' });
+  let removed = 0;
+  for (const name of LEGACY_COLLECTIONS) removed += await deleteCollection(name);
+  for (const name of store.STORE_NAMES) removed += await deleteCollection(remote(name));
+
+  await store.put('meta', {
+    id: RESET_DOC,
+    resetAt: Date.now(),
+    removed,
+    note: 'Database cleared when this version first connected.',
+  }, { silent: true });
+  await store.put('meta', { id: 'syncCursor', lastPullAt: Date.now() }, { silent: true });
+  await store.clearDirty('meta', ['syncCursor']);
+
+  const uploaded = await store.markAllDirty();
+  await pushAll();
+  publish({ status: 'ready', lastSync: Date.now() });
+  return { removed, uploaded };
+}
+
+export const cloudResetInfo = () => store.get('meta', RESET_DOC) || null;
 
 /** Count of documents left over from the previous version of this app. */
 export async function legacyCount() {

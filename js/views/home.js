@@ -6,6 +6,7 @@ import { h, card, button, statTile, progressBar, pill, icon, sectionHeader, link
 import * as M from '../core/model.js';
 import * as A from '../logic/analytics.js';
 import { go } from '../core/router.js';
+import * as sync from '../core/sync.js';
 import { bodyWeightSheet, stepsSheet, cardioSheet, waistSheet } from '../ui/entry.js';
 import { today, fmtDateLong, fmtNum, fmtSigned, fmtInt, fmtDuration, relativeDay } from '../core/util.js';
 
@@ -14,9 +15,34 @@ export const tab = 'home';
 
 export function render() {
   const date = today();
+  const root = buildHome(date);
+
+  // The connect prompt depends on sync status, which settles asynchronously.
+  // onStatus fires immediately, so skip that first call — re-rendering from
+  // inside render() would be reentrant.
+  let seen = null;
+  let first = true;
+  root.unmount = sync.onStatus((st) => {
+    if (first) {
+      first = false;
+      seen = st.status;
+      return;
+    }
+    if (st.status === seen) return;
+    seen = st.status;
+    const onHome = ['#/home', '#/', ''].includes(location.hash);
+    if (onHome) setTimeout(() => go('/home'), 0);
+  });
+  return root;
+}
+
+function buildHome(date) {
   const status = A.todayStatus(date);
   const unit = M.unit();
   const root = h('div', { class: 'stack' });
+
+  const connect = connectBanner();
+  if (connect) root.appendChild(connect);
 
   root.appendChild(heroCard(status, date));
 
@@ -101,6 +127,27 @@ function primaryAction(status) {
     variant: 'primary', class: 'btn-block btn-lg', iconName: 'play',
     onClick: () => go('/workout'),
   });
+}
+
+/** Cloud backup is on by default but needs one sign-in before it can write. */
+function connectBanner() {
+  if (!M.settings().syncEnabled) return null;
+  const st = sync.state;
+  if (st.status !== 'signed-out' && st.status !== 'error') return null;
+  return card({ class: 'tight' },
+    h('div', { class: 'banner accent' },
+      icon('cloud', 18),
+      h('div', null,
+        h('strong', null, st.status === 'error' ? 'Cloud backup needs attention' : 'Connect cloud backup'),
+        h('div', { class: 'small muted' }, st.status === 'error'
+          ? st.error || 'Sync is not running.'
+          : 'Sign in once and every workout writes straight to your database.')
+      )
+    ),
+    button(st.status === 'error' ? 'Open settings' : 'Sign in', {
+      variant: 'primary', class: 'btn-block', onClick: () => go('/profile'),
+    })
+  );
 }
 
 // --- Block complete ------------------------------------------------------

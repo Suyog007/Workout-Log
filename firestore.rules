@@ -1,9 +1,38 @@
 rules_version = '2';
+
+// Workout Log — single-user rules.
+//
+// The Firebase web apiKey is published in the app bundle (that is by design —
+// it identifies the project, it is not a secret). So the rules, not the client,
+// are what actually guard the data.
+//
+// OWNER_UID pins the whole database to one account. Even if someone creates an
+// account in this project, they get zero read and zero write access.
+//
+//   1. Sign in on the app, then Profile → Cloud backup → tap the User ID to
+//      copy it (or Firebase Console → Authentication → Users).
+//   2. Paste it below, replacing PASTE_YOUR_UID_HERE.
+//   3. Publish: Firebase Console → Firestore Database → Rules → Publish,
+//      or `firebase deploy --only firestore:rules`.
+//
+// Until step 2 is done these rules deny everything, and the app will show a
+// sync error rather than silently failing.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each user can only read/write their own data
+    function isOwner(userId) {
+      return request.auth != null
+        && request.auth.uid == userId
+        && userId == 'PASTE_YOUR_UID_HERE';
+    }
+
     match /users/{userId}/{collection}/{docId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isOwner(userId);
+    }
+
+    // Nothing else in this project is reachable.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
